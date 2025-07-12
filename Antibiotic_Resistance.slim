@@ -1,0 +1,86 @@
+// Keywords: nonWF, non-Wright-Fisher, QTL, quantitative trait loci
+
+initialize() {
+	initializeSLiMModelType("nonWF");
+	defineConstant("K", 500);
+	defineConstant("opt1", 3.0);
+	defineConstant("opt2", 10.0);
+	defineConstant("Tdelta", 10000);
+	
+	defineGlobal("xs", c());
+	defineGlobal("ys", c());
+	defineGlobal("plot", NULL);  // store SLiMgui plot object
+	
+	initializeMutationType("m1", 0.5, "n", 0.0, 1.0);  // QTL
+	initializeGenomicElementType("g1", m1, 1.0);
+	initializeGenomicElement(g1, 0, 99999);
+	initializeMutationRate(1e-7);
+	initializeRecombinationRate(1e-8);
+}
+
+reproduction() {
+	subpop.addCrossed(individual, subpop.sampleIndividuals(1));
+}
+
+1 early() {
+	sim.addSubpop("p1", 500);
+}
+
+early() {
+	inds = sim.subpopulations.individuals;
+	phenotypes = inds.sumOfMutationsOfType(m1);
+	optimum = (sim.cycle < Tdelta) ? opt1 else opt2 / (1 + exp(exp(-(sim.cycle - Tdelta))));
+	deviations = optimum - phenotypes;
+
+	fitnessFunctionMax = dnorm(0.0, 0.0, 5.0);
+	adaptation = dnorm(deviations, 0.0, 5.0) / fitnessFunctionMax;
+	inds.fitnessScaling = 0.1 + adaptation * 0.9;
+
+	inds.tagF = phenotypes;
+	p1.fitnessScaling = min(K / p1.individualCount, 1.5);
+}
+
+mutationEffect(m1) { return 1.0; }
+
+late() {
+	if (p1.individualCount == 0) {
+		catn("Extinction in cycle " + sim.cycle + ".");
+		sim.simulationFinished();
+	} else {
+		// Calculate phenotype deviation
+		optimum = (sim.cycle < Tdelta) ? opt1 else opt2 / (1 + exp(-(sim.cycle - Tdelta)));
+		phenotypes = p1.individuals.tagF;
+		deviations = optimum - phenotypes;
+
+		// Console output
+		cat(sim.cycle + ": " + p1.individualCount + " individuals");
+		cat(", phenotype mean " + mean(phenotypes));
+		if (size(phenotypes) > 1)
+			cat(" (sd " + sd(phenotypes) + ")");
+		catn();
+
+		// Append to global vectors using setValue to persist
+		xs = c(xs, rep(sim.cycle, size(deviations)));
+		ys = c(ys, deviations);
+
+		// Plotting in SLiMgui
+		if (exists("slimgui")) {
+			if (isNULL(plot)) {
+				plot = slimgui.createPlot("Mean Deviation from Optimum",
+					c(0, 20000), c(-10, 10),
+					xlab = "Generation", ylab = "Mean Deviation", width = 700, height = 300);
+				
+			      }
+
+            plot.points(xs,ys);
+            plot.lines(xs,ys);
+		}
+	}
+}
+
+20000 late() {
+	phenotypes = p1.individuals.tagF;
+	meanPheno = mean(phenotypes);
+	catn(sim.cycle + ", " + meanPheno);
+	sim.simulationFinished();
+}
